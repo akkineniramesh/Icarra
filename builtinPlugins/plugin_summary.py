@@ -49,9 +49,6 @@ class Plugin(PluginBase):
 	def createWidget(self, parent):
 		return PortfolioSummaryWidget(parent)
 	
-	def reRender(self, panel, app):
-		panel.update()
-
 	def finalize(self):
 		pass
 

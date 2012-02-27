@@ -51,9 +51,6 @@ class Plugin(PluginBase):
 	def createWidget(self, parent):
 		return ChartsWidget(parent)
 	
-	def reRender(self, panel, app):
-		panel.update()
-
 	def finalize(self):
 		pass
 
@@ -113,7 +110,7 @@ class ChartsWidget(QWidget):
 			self.tickersNormal.pop(self.tickersNormal.index("__COMBINED__"))
 			self.tickersNormal.insert(0, "__COMBINED__")
 
-		horiz.addWidget(QLabel("Position:"))
+		horiz.addWidget(QLabel("Symbol:"))
 
 		self.combo = QComboBox()
 		self.combo.addItems(self.tickers)
@@ -130,7 +127,7 @@ class ChartsWidget(QWidget):
 	
 		horiz.addWidget(QLabel("Period:"))
 
-		self.periods = ["One Week", "One Month", "Three Months", "One Year", "Two Years", "Three Years", "Five Years", "Ten Years", "Position Inception", "Portfolio Inception"]
+		self.periods = ["One Week", "One Month", "Three Months", "One Year", "Two Years", "Three Years", "Five Years", "Ten Years", "Initial Ownership", "Portfolio Inception"]
 		value = p.portPrefs.getPositionPeriod()
 		self.period = QComboBox()
 		self.period.addItems(self.periods)

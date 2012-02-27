@@ -204,6 +204,8 @@ class PortfolioSettingsWidget(QWidget):
 		grid.addWidget(QLabel("<b>Name</b>"), 0, 0)
 		self.name = QLineEdit()
 		self.name.setText(portfolio.name)
+		if portfolio.name == "S&P 500":
+			self.name.setDisabled(True)
 		grid.addWidget(self.name, 0, 1)
 		self.connect(self.name, SIGNAL("textChanged(QString)"), self.newName)
 
@@ -392,16 +394,6 @@ class PortfolioSettingsWidget(QWidget):
 		self.autoDividendReinvest.setStyleSheet("margin-left: 25px; margin-bottom: 10px")
 		grid.addWidget(self.autoDividendReinvest, row, 0, 1, 2)
 		row += 1
-
-		if portfolio.name != "S&P 500":
-			self.hasDelete = True
-			self.deleteButton = QPushButton("Delete Portfolio")
-			self.deleteButton.setSizePolicy(QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed))
-			self.connect(self.deleteButton, SIGNAL("clicked()"), self.delete)
-			grid.addWidget(self.deleteButton, row, 0, 1, 2)
-			row += 1
-		else:
-			self.hasDelete = False
 		
 		self.twiddleAdvanced()
 
@@ -415,16 +407,12 @@ class PortfolioSettingsWidget(QWidget):
 	
 	def twiddleAdvanced(self):
 		if self.advancedOptions.isChecked():
-			if self.hasDelete:
-				self.deleteButton.show()
 			self.summaryFrame.show()
 			self.autoAdjust.show()
 			self.autoSplit.show()
 			self.autoDividend.show()
 			self.autoDividendReinvest.show()
 		else:
-			if self.hasDelete:
-				self.deleteButton.hide()
 			self.summaryFrame.hide()
 			self.autoAdjust.hide()
 			self.autoSplit.hide()
@@ -467,11 +455,22 @@ class PortfolioSettingsWidget(QWidget):
 	
 	def newName(self):
 		name = str(self.name.text())
+		# Do not allow changing S&P 500 name
+		if self.app.portfolio.name == "S&P 500":
+			self.name.setText("S&P 500")
+			return
+		
+		# Check if name exists
+		if name in self.app.prefs.getPortfolios():
+			return
+		
+		# Check for new name
 		if name != self.app.portfolio.name:
 			error = self.app.prefs.changePortfolioName(self.app.portfolio.name, name)
 			if not error:
 				self.app.prefs.setLastPortfolio(name)
 				self.app.main.setWindowTitle(name)
+				self.app.buildPortfolioMenuNames()
 				self.app.rebuildPortfoliosMenu()
 	
 			self.app.portfolio = Portfolio(name)
@@ -569,13 +568,3 @@ class PortfolioSettingsWidget(QWidget):
 		t.exec_()
 		if t.didImport and (alwaysSetAccount or self.account.text() == "(optional)" or self.account.text() == "" or not self.account.text() or self.account.text() == "None"):
 			self.account.setText(portfolio.account)
-	
-	def delete(self):
-		box = QMessageBox(QMessageBox.Question, "Please confirm", "Are you sure you wish to delete this portfolio?", buttons = QMessageBox.Ok | QMessageBox.Cancel)
-		box.setDefaultButton(QMessageBox.Cancel)
-		confirm = box.exec_()
-		if confirm == QMessageBox.Ok:
-			self.app.portfolio.delete(self.app.prefs)
-			del self.app.portfolioMenuNames[self.app.portfolio.name]
-			self.app.loadPortfolio("S&P 500")
-			self.app.rebuildPortfoliosMenu()

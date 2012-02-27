@@ -46,9 +46,6 @@ class Plugin(PluginBase):
 	def createWidget(self, parent):
 		return ErrorCheckWidget(parent)
 	
-	def reRender(self, panel, app):
-		pass
-
 	def finalize(self):
 		pass
 

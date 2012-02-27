@@ -81,7 +81,7 @@ class PerformanceWidget(QWidget):
 		hor.addWidget(self.chartType)
 		self.connect(self.chartType, SIGNAL("currentIndexChanged(int)"), self.changeType)
 
-		current = QCheckBox("Current Positions Only")
+		current = QCheckBox("Current Symbols Only")
 		if portfolio.portPrefs.getPerformanceCurrent():
 			current.setChecked(True)
 			self.model.current = True

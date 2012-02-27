@@ -54,9 +54,6 @@ class Plugin(PluginBase):
 	def createWidget(self, parent):
 		return StockDataWidget(parent)
 	
-	def reRender(self, panel, app):
-		pass
-
 	def finalize(self):
 		pass
 
@@ -236,7 +233,7 @@ class StockDataWidget(QWidget):
 		hbox = QHBoxLayout()
 		vbox.addLayout(hbox)
 
-		hbox.addWidget(QLabel("Ticker:"))
+		hbox.addWidget(QLabel("Symbol:"))
 
 		ticker = app.portfolio.getLastTicker()
 		if not ticker or ticker == "False":
@@ -263,7 +260,7 @@ class StockDataWidget(QWidget):
 		hbox.addWidget(self.tickerCombo)
 		self.connect(self.tickerCombo, SIGNAL("currentIndexChanged(int)"), self.update)
 
-		hbox.addWidget(QLabel("Icarra Ticker:"))
+		hbox.addWidget(QLabel("Icarra Symbol:"))
 		
 		icarraTicker = app.stockData.getIcarraTicker(ticker)
 		self.icarraTicker = QLineEdit()
@@ -458,7 +455,7 @@ class NewStockData(QDialog):
 		row += 1
 
 		# Add ticker, but do not allow editing, only new
-		self.tickerLabel = QLabel("Position:")
+		self.tickerLabel = QLabel("Symbol:")
 		grid.addWidget(self.tickerLabel, row, 0)
 		self.tickers = self.app.stockData.getTickers()
 		if self.tickers:

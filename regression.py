@@ -85,7 +85,9 @@ def run(argv):
 				# Turn date into YYYY-MM-DD HH:MM:SS
 				if re.match("\d\d\d\d-\d\d-\d\d", value) and len(value) == 10:
 					value = value + " 00:00:00"
-					
+				
+				if value == "value":
+					value = "total value"
 				values[key] = value
 
 				# Add to query

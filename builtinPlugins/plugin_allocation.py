@@ -53,9 +53,6 @@ class Plugin(PluginBase):
 	def createWidget(self, parent):
 		return AllocationWidget(parent)
 	
-	def reRender(self, panel, app):
-		pass
-
 	def finalize(self):
 		pass
 
@@ -80,8 +77,8 @@ class AddAllocationPanel(QDialog):
 		vert.addLayout(grid)
 
 		self.name = QLineEdit()
-		self.name.setText("New Position")
-		grid.addWidget(QLabel("Position:"), 0, 0)
+		self.name.setText("New Symbol")
+		grid.addWidget(QLabel("Symbol:"), 0, 0)
 		grid.addWidget(self.name, 0, 1)
 		self.name.setFocus()
 		self.name.setSelection(0, 200) # Select all
@@ -151,9 +148,9 @@ class AllocationModel(EditGridModel):
 		
 		self.ticker = appGlobal.getApp().portfolio.getLastTicker()
 		if appGlobal.getApp().portfolio.isBrokerage():
-			self.setColumns(["Position", "Target %", "Current %", "Current $", "Difference %", "Difference $", "Shares"])
+			self.setColumns(["Symbol", "Target %", "Current %", "Current $", "Difference %", "Difference $", "Shares"])
 		else:
-			self.setColumns(["Position", "Target %", "Current %", "Current $", "Difference %", "Difference $"])
+			self.setColumns(["Symbol", "Target %", "Current %", "Current $", "Difference %", "Difference $"])
 		self.setRedGreenColumn(4)
 		self.setRedGreenColumn(5)
 		self.setAllocation()
@@ -219,7 +216,10 @@ class AllocationModel(EditGridModel):
 				else:
 					sign = ""
 			
-			currentRow.append(ticker)
+			if ticker == "__CASH__":
+				currentRow.append("Cash")
+			else:
+				currentRow.append(ticker)
 			#grid.addWidget(QLabel(ticker), row, 0)
 			name = self.app.stockData.getName(ticker)
 			#if name:
@@ -340,11 +340,11 @@ class AllocationWidget(QWidget):
 		horiz = QHBoxLayout()
 		vbox.addLayout(horiz)
 		
-		self.add = QPushButton("Add Position")
+		self.add = QPushButton("Add Symbol")
 		horiz.addWidget(self.add)
 		self.connect(self.add, SIGNAL("clicked()"), self.addPosition)
 		
-		self.delete = QPushButton("Delete Position")
+		self.delete = QPushButton("Delete Symbol")
 		self.delete.setEnabled(False)
 		horiz.addWidget(self.delete)
 		self.connect(self.delete, SIGNAL("clicked()"), self.deletePosition)

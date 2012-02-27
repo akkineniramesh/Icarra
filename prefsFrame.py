@@ -75,6 +75,12 @@ class PrefsFrame(QDialog):
 
 		if self.ofxDebug.isChecked() != self.app.prefs.getOfxDebug():
 			self.app.prefs.setOfxDebug(self.ofxDebug.isChecked())
+			
+			# Show or hide debug frame
+			if self.ofxDebug.isChecked():
+				self.app.startOfxDebug()
+			else:
+				self.app.stopOfxDebug()
 
 		if self.showCash.isChecked() != self.app.prefs.getShowCashInTransactions():
 			self.app.prefs.setShowCashInTransactions(self.showCash.isChecked())

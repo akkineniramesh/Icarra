@@ -57,6 +57,7 @@ class Plugin(PluginBase):
 		return (1, 0, 0)
 
 	def createWidget(self, parent):
+		self.checkErrors()
 		return TransactionWidget(parent)
 
 	@staticmethod
@@ -71,6 +72,83 @@ class Plugin(PluginBase):
 				appGlobal.getApp().toolWidget.rebuildPositions()
 				appGlobal.getApp().toolWidget.model.setTransactions()
 				appGlobal.getApp().toolWidget.table.resizeColumnsToContents()
+	
+	@staticmethod
+	def checkErrors(parent = None):
+		portfolio = appGlobal.getApp().portfolio
+		
+		errors = portfolio.errorCheckTransactions(appGlobal.getApp().stockData)
+		if not errors:
+			return
+		
+		i = 1
+		for e in errors:
+			fix = FixTransactionError(e, parent, i, len(errors))
+			i += 1
+			fix.exec_()
+			
+			if fix.stop:
+				break
+
+class FixTransactionError(QDialog):
+	def __init__(self, error, parent, index, count):
+		QDialog.__init__(self, parent)
+		self.setWindowTitle("Detected transaction error (%d/%d)" % (index, count))
+		
+		self.fix = False
+		self.ignore = False
+		self.stop = False
+
+		vert = QVBoxLayout(self)
+		
+		# error is 	(id, type, newDate, newTotal)
+		self.error = error
+		errorText = error.formatErrorText()
+		vert.addWidget(QLabel(errorText))
+
+		buttons = QHBoxLayout()
+		buttons.addStretch(1000)
+		vert.addLayout(buttons)
+
+		fix = QPushButton("Fix")
+		buttons.addWidget(fix)
+		self.connect(fix, SIGNAL("clicked()"), self.doFix)
+	
+		ignore = QPushButton("Ignore")
+		buttons.addWidget(ignore)
+		self.connect(ignore, SIGNAL("clicked()"), self.doIgnore)
+
+		cancel = QPushButton("Cancel")
+		buttons.addWidget(cancel)
+		self.connect(cancel, SIGNAL("clicked()"), SLOT("reject()"))
+
+	def doFix(self):
+		portfolio = appGlobal.getApp().portfolio
+		if not self.error.id:
+			newTrans = Transaction("__" + portfolio.portPrefs.getTransactionId() + "__", self.error.ticker, self.error.newDate, self.error.type, self.error.newTotal)
+			newTrans.save(portfolio.db)
+		else:
+			oldTrans = portfolio.getTransaction(self.error.id)
+			if self.error.delete:
+				oldTrans.setDeleted()
+			if self.error.oldTotal != self.error.newTotal:
+				oldTrans.total = self.error.newTotal
+			if self.error.oldDate != self.error.newDate:
+				oldTrans.date = self.error.newDate
+			oldTrans.save(portfolio.db)
+		portfolio.readFromDb()
+		
+		self.fix = True
+		self.accept()
+
+	def doIgnore(self):
+		self.ignore = True
+		appGlobal.getApp().portfolio.ignoreTransactionCheck(self.error)
+		self.accept()
+
+	def reject(self):
+		self.stop = True
+		QDialog.reject(self)
 
 class WebImport(QDialog):
 	def __init__(self, parent):
@@ -180,9 +258,11 @@ class Import(QDialog):
 
 		portfolio = self.app.portfolio
 		if not portfolio.brokerage:
-			layout.addWidget(QLabel("Set Brokerage and Username\nin Settings tool before downloading"))
+			setLabel = QLabel("Set Brokerage and Username in\nSettings tool before downloading from institution")
+			setLabel.setStyleSheet("font-weight: bold; color: 0xcc0000")
+			layout.addWidget(setLabel)
 			layout.addSpacing(10)
-			radioStr = "Download from brokerage"
+			radioStr = "Download from institution"
 		elif not portfolio.username:
 			layout.addWidget(QLabel("Set Username in Settings before downloading"))
 			radioStr = "Download from " + portfolio.brokerage
@@ -202,6 +282,11 @@ class Import(QDialog):
 		self.password = QLineEdit()
 		self.password.setEchoMode(QLineEdit.Password)
 		hbox.addWidget(self.password)
+		
+		if not portfolio.brokerage:
+			self.ofx.setDisabled(True)
+			self.passwordLabel.setDisabled(True)
+			self.password.setDisabled(True)
 		
 		# Check for keying, try to load password
 		if haveKeyring and portfolio.username:
@@ -269,6 +354,9 @@ class Import(QDialog):
 	def onOk(self):
 		portfolio = self.app.portfolio
 		brokerage = self.app.plugins.getBrokerage(portfolio.brokerage)
+		if not brokerage:
+			QMessageBox(QMessageBox.Warning, "Set institution", "Please set the institution under the settings tool before importing transactions from your institution").exec_()
+			return
 		status = False
 		try:
 			if self.ofx.isChecked():
@@ -421,6 +509,7 @@ class NewTransaction(QDialog):
 
 		self.dateLabel = QLabel("<b>Date:</b>")
 		self.date = QDateEdit()
+		self.date.setDisplayFormat("MM/dd/yyyy")
 		if transaction:
 			dict = dateDict(transaction.date)
 			self.date.setDate(QDate(dict["y"], dict["m"], dict["d"]))
@@ -439,7 +528,7 @@ class NewTransaction(QDialog):
 		# completer.setModelSorting(QCompleter.CaseInsensitivelySortedModel)
 		completer.setCaseSensitivity(Qt.CaseInsensitive)
 
-		self.tickerLabel = QLabel("<b>Position:</b>")
+		self.tickerLabel = QLabel("<b>Symbol:</b>")
 		self.ticker = QLineEdit()
 		self.ticker.setCompleter(completer)
 		if transaction:
@@ -466,7 +555,7 @@ class NewTransaction(QDialog):
 		grid.addWidget(self.expireLabel, 5, 0)
 		grid.addWidget(self.expire, 5, 1)
 
-		self.ticker2Label = QLabel("<b>New Position:</b>")
+		self.ticker2Label = QLabel("<b>New Symbol:</b>")
 		self.ticker2 = QLineEdit()
 		self.ticker2.setCompleter(completer)
 		if transaction and transaction.ticker2:
@@ -807,9 +896,9 @@ class TransactionModel(EditGridModel):
 		self.setTransactions()
 	
 		if appGlobal.getApp().portfolio.isBank():
-			columns = ["Date", "Position", "Transaction", "Fee", "Total"]
+			columns = ["Date", "Symbol", "Transaction", "Fee", "Total"]
 		else:
-			columns = ["Date", "Position", "Transaction", "Shares", "$/Share", "Fee", "Total"]
+			columns = ["Date", "Symbol", "Transaction", "Shares", "$/Share", "Fee", "Total"]
 		if appGlobal.getApp().prefs.getShowCashInTransactions():
 			columns.append("Cash Balance")
 		self.setColumns(columns)
@@ -878,7 +967,7 @@ class TransactionWidget(QWidget):
 		hor2.setMargin(0)
 		vbox.addLayout(hor2)
 		
-		self.positionLabel = QLabel("Position:")
+		self.positionLabel = QLabel("Symbol:")
 		hor.addWidget(self.positionLabel)
 		
 		self.tickerBox = QComboBox()
@@ -949,7 +1038,7 @@ class TransactionWidget(QWidget):
 		if "__CASH__" in self.tickers:
 			self.tickers.pop(self.tickers.index("__CASH__"))
 			self.tickers.insert(0, "Cash Balance")
-		self.tickers.insert(0, "All Positions")
+		self.tickers.insert(0, "All Symbols")
 		self.tickerBox.addItems(self.tickers)
 		if lastTicker == False:
 			self.tickerBox.setCurrentIndex(0)
@@ -1040,7 +1129,7 @@ class TransactionWidget(QWidget):
 			return
 		
 		ticker = self.tickers[index]
-		if ticker == "All Positions":
+		if ticker == "All Symbols":
 			self.model.ticker = False
 		elif ticker == "Cash Balance":
 			self.model.ticker = "__CASH__"

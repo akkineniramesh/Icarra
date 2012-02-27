@@ -1,40 +1,43 @@
-from PyQt4.QtCore import *
-from PyQt4.QtGui import *
+class PluginBase:
+	'''PluginBase defines the base class of all Icarra plugins.  Every
+	Icarra tool is a plugin including the standard Chart, Settings and
+	Transaction tools.
 
-class PluginBase(QWidget):
+	The Summary plugin (builtinPlugins/plugin_summary.py) is a good
+	example of a simple plugin.'''
+
 	def __init__(self):
-		QWidget.__init__(self)
+		'''Plugins should not override this function'''
+		pass
 	
 	def name(self):
-		'Return the display name of this plugin'
+		'''Return the display name of this plugin'''
 		return '???'
 
 	def icarraVersion(self):
-		'Return the latest version of Icarra software that this plugin has been tested with'
+		'''Return the required version of Icarra software for using this plugin'''
 		return (0, 2, 0)
 
 	def version(self):
-		'Return a 3-tuple of the plugin version'
+		'''Return a 3-tuple of the plugin version.  This is only used for informational purposes.'''
 		return (0, 0, 0)
 
 	def forInvestment(self):
+		'''Return True if this plugin is applicable to investment accounts.'''
 		return True
 
 	def forBank(self):
+		'''Return True if this plugin is applicable to bank accounts.'''
 		return True
 
 	def initialize(self):
-		'Called on startup.  Called sequentially for each plugin.  This may not be the first function that is called.'
+		'''Called on startup.  Called sequentially for each plugin.  Plugins should use this function instead of __init__ for initializing the plugin.'''
 		pass
 
 	def createWidget(self, parent):
-		'Called when the plugin should display its GUI controls.  Should return a QWidget or None.  The QWidget will be returned as the widget argument to reRender.'
+		'''Called when the plugin should display its GUI controls.  Should return a QWidget or None.'''
 		return None
 
-	def reRender(self, widget, app):
-		'Called when the plugin should re-display its GUI controls.  Render will always be called first.'
-		pass
-
 	def finalize(self):
-		'Called when Icarra exits.  Called sequentially for each plugin.'
+		'''Called when Icarra exits.  Called sequentially for each plugin.'''
 		pass

@@ -47,20 +47,55 @@ import operator
 import uuid
 
 def floatCompare(a, b):
+	'''Return the ratio of two floating point numbers.  Return value is always greater than 0 unless both numbers are 0 in which case this function returns 0.'''
 	if a > b:
 		num = a
-		dem = b
+		den = b
 	else:
 		num = b
-		dem = a
-	if num == 0 and dem == 0:
+		den = a
+	if num == 0 and den == 0:
 		return 0
-	elif dem == 0:
+	elif den == 0:
 		return 1e9
 	else:
-		return num / dem
+		return num / den
+
+class TransactionErrorCheck:
+	'''Implements a detected error for one transaction'''
+	def __init__(self, id, ticker, type, oldDate = False, newDate = False, oldTotal = False, newTotal = False, delete = False):
+		self.id = id
+		self.ticker = ticker
+		self.type = type
+		self.newDate = newDate
+		self.oldDate = oldDate
+		self.newTotal = newTotal
+		self.oldTotal = oldTotal
+		self.delete = delete
+	
+	def formatErrorText(self):
+		'''Format the error text as suitable for display'''
+		if self.id:
+			errorText = "An error occurred with the " + self.ticker + " " + Transaction.getTypeString(self.type) + " transaction on " + Transaction.formatDateStatic(self.oldDate) +  ".\n"
+			if self.delete:
+				errorText += "There is no record of this transaction having occurred.\nIt may have been added to your portfolio on accident.\n\nDelete it?"
+			if self.oldTotal != self.newTotal:
+				if self.type == Transaction.split:
+					errorText += "\nThe split value is " + Transaction.splitValueToString(self.oldTotal) + " but should be " + Transaction.splitValueToString(self.newTotal) + "."
+				else:
+					errorText += "Unknown error."
+			if self.newDate != self.oldDate:
+				errorText += "\nThe date is " + Transaction.formatDateStatic(self.oldDate) + " but should be " + Transaction.formatDateStatic(self.newDate) + "."
+		else:
+			errorText = "This portfolio is missing a "
+			if self.type == Transaction.split:
+				errorText += Transaction.splitValueToString(self.newTotal) + " " + Transaction.getTypeString(self.type) + " transaction for " + self.ticker + " on " + Transaction.formatDateStatic(self.newDate) + "?"
+			errorText += "\n\nWould you like to fix this error by adding this transaction?" 
+
+		return errorText
 
 class PortfolioPrefs(prefs.Prefs):
+	'''Implements portfolio specific preferences'''
 	def __init__(self, db):
 		prefs.Prefs.__init__(self, db)
 		
@@ -77,70 +112,89 @@ class PortfolioPrefs(prefs.Prefs):
 		self.checkDefaults("combinedComponents", "")
 		self.checkDefaults("brokerage", "False")
 		self.checkDefaults("sync", "")
-		self.checkDefaults("autoAdjust", "False")
+		self.checkDefaults("autoAdjust", "True")
 		self.checkDefaults("autoSplit", "False")
 		self.checkDefaults("autoDividend", "False")
 		self.checkDefaults("autoDividendReinvest", "False")
 
 	def getTransactionId(self):
+		'''Return a random transaction id'''
 		return uuid.uuid4().hex
 
 	def getDirty(self):
+		'''Return True if this portfolio is dirty (needs to be rebuilt)'''
 		return self.getPreference("dirty") == "True"
 
 	def getPositionIncSplits(self):
+		'''Return True if the chart should include split adjusted returns'''
 		return self.getPreference("positionIncSplits") == "True"
 
 	def getPositionIncDividends(self):
+		'''Return True if the chart should include dividend adjusted returns'''
 		return self.getPreference("positionIncDividends") == "True"
 
 	def getPositionIncFees(self):
+		'''Return True if the chart should include dividend and fee adjusted returns'''
 		return self.getPreference("positionIncFees") == "True"
 
 	def getPositionIncBenchmark(self):
+		'''Return True if the chart should include the benchmark'''
 		return self.getPreference("positionIncBenchmark") == "True"
 	
 	def getChartType(self):
+		'''Return the active chart type'''
 		return self.getPreference("chartType")
 
 	def getPositionPeriod(self):
+		'''Return the charting period'''
 		return self.getPreference("positionPeriod")
 
 	def getPerformanceCurrent(self):
+		'''Return True if the performance tool should include only current positions'''
 		return self.getPreference("performanceCurrent") == "True"
 
 	def getPerformanceDividends(self):
+		'''Return True if the performance tool should include dividends'''
 		return self.getPreference("performanceDividends") == "True"
 
 	def getLastImport(self):
+		'''Return the datetime of the last transaction import'''
 		return self.getPreference("lastImport")
 
 	def getCombinedComponents(self):
+		'''Return the sub-portfolios for a combined portfolio'''
 		if not self.getPreference("combinedComponents"):
 			return []
 		return self.getPreference("combinedComponents").split(",")
 	
 	def getBrokerage(self):
+		'''Return this portfolio's brokerage name'''
 		return self.getPreference("brokerage")
 
 	def getUrl(self):
+		'''Return the last URL used for importing transactions via the web'''
 		return self.getPreference("url")
 
 	def getSync(self):
+		'''Return a list of online services with which to sync this portfolio'''
 		if not self.getPreference("sync"):
 			return []
 		return self.getPreference("sync").split(",")
 
 	def getAutoAdjust(self):
+		'''Return True if this portfolio should automatically adjust to position checks'''
 		return self.getPreference("autoAdjust") == "True"
 
 	def getAutoSplit(self):
+		'''Return True if this portfolio should automatically include splits'''
 		return self.getPreference("autoSplit") == "True"
 
 	def getAutoDividend(self):
+		'''Return True if this portfolio should automatically include dividends'''
 		return self.getPreference("autoDividend") == "True"
 
 	def getAutoDividendReinvest(self):
+		'''Return True if this portfolio should automatically reinvest dividends'''
 		return self.getPreference("autoDividendReinvest") == "True"
 
 	def setDirty(self, dirty):
@@ -233,11 +287,17 @@ class PortfolioPrefs(prefs.Prefs):
 		self.db.update("prefs", {"value": value}, {"name": "autoDividendReinvest"})
 		self.db.commitTransaction()
 
-class Portfolio:	
+class Portfolio:
+	'''Implements all functions needed for managing portfolios.
+	
+	Also implements many functions that are used for generating tool output.
+	
+	'''
 	def __init__(self, name = False, brokerage = "", username = "", account = "", customDb = False):
 		self.open(name, customDb)
 		
 	def open(self, name, customDb = False):
+		'''Initialize this portfolio and open it's database'''
 		self.name = name
 
 		if prefs.prefs:
@@ -339,6 +399,16 @@ class Portfolio:
 			{"name": "category", "type": "text"}],
 			unique = [{"name": "categoryIndex", "cols": ["category"]}])
 
+		self.db.checkTable("availCategories", [
+			{"name": "category", "type": "text"}],
+			unique = [{"name": "categoryIndex", "cols": ["category"]}])
+
+		self.db.checkTable("ignoreTransactionChecks", [
+			{"name": "ticker", "type": "text"},
+			{"name": "date", "type": "datetime"},
+			{"name": "type", "type": "integer"}],
+			unique = [{"name": "tickerIndex", "cols": ["ticker"]}])
+
 		self.db.commitTransaction()
 		
 		# List of transactions
@@ -348,9 +418,11 @@ class Portfolio:
 		self.userPrices = []
 		
 	def close(self):
+		'''Close this portfolio's database'''
 		self.db.close()
 	
 	def strToDatetime(self, date, zeroHMS = False):
+		'''Convert a string to a datetime value.  If zeroHMS is true then the hours, minutes and seconds will be zeroed out.'''
 		# Remove HMS if specified
 		if zeroHMS:
 			date = str(date)
@@ -359,11 +431,19 @@ class Portfolio:
 		return Transaction.parseDate(date)
 	
 	def delete(self, prefs):
+		'''Delete this portfolio (remove from Icarra)'''
 		self.db.close()
 		os.remove(prefs.getPortfolioPath(self.name))
 		prefs.deletePortfolio(self.name)
 	
 	def updateFromFile(self, data, app, status = False):
+		'''Import transactions from a file.  This is the main call for importing transactions.
+		
+		A StatusUpdate class may be passed in the status argument to show the import status to the user.
+		
+		Returns a tuple of (number of new transactions, number of old transactions, number of new tickers added to the portfolio)
+		
+		'''
 		if status:
 			status.setSubTask(50)
 			status.setStatus("Parsing transactions", 10)
@@ -446,6 +526,7 @@ class Portfolio:
 			raise
 
 	def readFromDb(self):
+		'''Read cached transactions from the database.  This function must be called before any other function that uses transactions, and should be called after transactions have been modified.'''
 		res = self.db.select("transactions")
 		
 		self.transactions = []
@@ -480,11 +561,9 @@ class Portfolio:
 				ticker,
 				row["price"])
 			self.userPrices.append(p)
-
-	def isValid(self):
-		return self.getPositionFirstLast("__COMBINED__")
 	
 	def getTickers(self, includeAllocation = False):
+		'''Return a list of all tickers in this portfolio.  If includeAllocation is true then values from the allocation table will be included.  Otherwise tickers will be taken strictly from transactions.  This list includes __CASH__ but does not include __COMBINED__ and __BENCHMARK__.'''
 		if self.isCombined():
 			# Combined portfolio
 			tickers = {}
@@ -526,39 +605,48 @@ class Portfolio:
 		return sorted(tickers.keys())
 
 	def getLastTicker(self):
+		'''Return the last active ticker for this portfolio used by a toolset'''
 		return self.portPrefs.getPreference("lastTicker")
 	
 	def isBrokerage(self):
+		'''Return True if this portfolio is a brokerage portfolio'''
 		return self.portPrefs.getPreference("isBrokerage") == "True"
 
 	def isBank(self):
+		'''Return True if this portfolio is a bank portfolio'''
 		return self.portPrefs.getPreference("isBank") == "True"
 
 	def isBenchmark(self):
+		'''Return True if this portfolio is a benchmark portfolio'''
 		return self.portPrefs.getPreference("isBenchmark") == "True"
 
 	def isCombined(self):
+		'''Return True if this portfolio is a combined portfolio'''
 		return self.portPrefs.getPreference("isCombined") == "True"
 
 	def makeBenchmark(self):
+		'''Turn this portfolio into a benchmark portfolio'''
 		self.db.update("prefs", {"value": "True"}, {"name": "isBenchmark"})
 		self.db.update("prefs", {"value": "False"}, {"name": "isBrokerage"})
 		self.db.update("prefs", {"value": "False"}, {"name": "isBank"})
 		self.db.update("prefs", {"value": "False"}, {"name": "isCombined"})
 	
 	def makeCombined(self):
+		'''Turn this portfolio into a combined portfolio'''
 		self.db.update("prefs", {"value": "True"}, {"name": "isCombined"})
 		self.db.update("prefs", {"value": "False"}, {"name": "isBrokerage"})
 		self.db.update("prefs", {"value": "False"}, {"name": "isBank"})
 		self.db.update("prefs", {"value": "False"}, {"name": "isBenchmark"})
 	
 	def makeBank(self):
+		'''Turn this portfolio into a bank portfolio'''
 		self.db.update("prefs", {"value": "True"}, {"name": "isBank"})
 		self.db.update("prefs", {"value": "False"}, {"name": "isBrokerage"})
 		self.db.update("prefs", {"value": "False"}, {"name": "isCombined"})
 		self.db.update("prefs", {"value": "False"}, {"name": "isBenchmark"})
 	
 	def getCategories(self):
+		'''Return a list of spending categories for this portfolio.  Used by bank portfolios.'''
 		# Read categories from DB
 		categories = []
 		cursor = self.db.select("availCategories")
@@ -577,6 +665,7 @@ class Portfolio:
 			return sorted(defaultCategories)
 	
 	def getRules(self):
+		'''Return a list of rules for this portfolio.  Used to automatically assign spending categories by bank portfolios.'''
 		# Read rules from DB
 		rules = []
 		cursor = self.db.select("rules")
@@ -585,16 +674,19 @@ class Portfolio:
 		return rules
 
 	def addCategory(self, category):
+		'''Add a spending category for a bank portfolio'''
 		self.db.beginTransaction()
 		self.db.insert("availCategories", {"category": category})
 		self.db.commitTransaction()
 	
 	def addRule(self, rule, category):
+		'''Add a rule for a bank portfolio'''
 		self.db.beginTransaction()
 		self.db.insert("rules", {"rule": rule, "category": category})
 		self.db.commitTransaction()
 
 	def removeCategory(self, category):
+		'''Remove a category for a bank portfolio'''
 		self.db.beginTransaction()
 		self.db.delete("availCategories", {"category": category})
 		self.db.delete("categories", {"category": category})
@@ -602,47 +694,76 @@ class Portfolio:
 		self.db.commitTransaction()
 
 	def removeRule(self, rule):
+		'''Remove a category for a bank portfolio'''
 		self.db.beginTransaction()
 		self.db.delete("rules", {"rule": rule})
 		self.db.commitTransaction()
 
 	def getCategory(self, ticker):
+		'''Return a category for a bank portfolio'''
 		cursor = self.db.select("categories", where = {"ticker": ticker})
 		for row in cursor.fetchall():
 			return row["category"]
 		return "Uncategorized"
 	
 	def setCategory(self, ticker, category):
+		'''Update a spending category'''
+		self.db.beginTransaction()
 		self.db.insertOrUpdate("categories", {"ticker": ticker, "category": category}, {"ticker": ticker})
+		self.db.commitTransaction()
+	
+	def ignoreTransactionCheck(self, error):
+		'''Ignore a transaction check'''
+		self.db.beginTransaction()
+		self.db.insert("ignoreTransactionChecks", {"ticker": error.ticker, "date": error.oldDate, "type": error.type})
+		self.db.commitTransaction()
+	
+	def isTransactionCheckIgnored(self, error):
+		'''Check if a transaction check is ignored'''
+		cursor = self.db.select("ignoreTransactionChecks", where = {"ticker": error.ticker, "date": error.oldDate, "type": error.type})
+		if cursor.fetchone():
+			return True
+		else:
+			return False
 
 	def getBenchmark(self):
+		'''Return the portfolio name of this portfolio's benchmark'''
 		return self.portPrefs.getPreference("benchmark")
 
 	def setBenchmark(self, benchmark):
+		'''Change this portfolio's benchmark'''
 		self.db.update("prefs", {"value": benchmark}, {"name": "benchmark"})
 
 	def getSummaryYears(self):
+		'''Return the number of years to show summary data.  Value may be thisYear, lastYear or allYears.'''
 		return self.portPrefs.getPreference("summaryYears")
 
 	def getSummaryChart1(self):
+		'''Get the first type of chart to show for the summary tool'''
 		return int(self.portPrefs.getPreference("summaryChart1"))
 
 	def getSummaryChart2(self):
+		'''Get the second type of chart to show for the summary tool'''
 		return int(self.portPrefs.getPreference("summaryChart2"))
 
 	def setSummaryYears(self, all):
+		'''Set the number of years to show summary data.  All may be thisYear, lastYear or allYears.'''
 		self.db.update("prefs", {"value": all}, {"name": "summaryYears"})
 
 	def setSummaryChart1(self, type):
+		'''Set the first type of chart to show for the summary tool'''
 		self.db.update("prefs", {"value": type}, {"name": "summaryChart1"})
 
 	def setSummaryChart2(self, type):
+		'''Set the second type of chart to show for the summary tool'''
 		self.db.update("prefs", {"value": type}, {"name": "summaryChart2"})
 
 	def setLastTicker(self, last):
+		'''Set the active ticker for this portfolio'''
 		self.db.update("prefs", {"value": last}, {"name": "lastTicker"})
 	
 	def getStartDate(self):
+		'''Return the starting date of this portfolio'''
 		cursor = self.db.select("transactions", orderBy = "date asc", limit = 1)
 		row = cursor.fetchone()
 		if row:
@@ -650,6 +771,7 @@ class Portfolio:
 		return False		
 
 	def getEndDate(self):
+		'''Return the ending date of this portfolio (last date of position history)'''
 		cursor = self.db.select("positionHistory", orderBy = "date desc", limit = 1)
 		row = cursor.fetchone()
 		if row:
@@ -657,6 +779,7 @@ class Portfolio:
 		return False		
 
 	def getLastTransactionDate(self):
+		'''Return the date of the last transaction in the portfolio'''
 		cursor = self.db.select("transactions", orderBy = "date desc", limit = 1)
 		row = cursor.fetchone()
 		if row:
@@ -664,13 +787,32 @@ class Portfolio:
 		return False		
 
 	def getFirstTransactionDate(self):
+		'''Return the date of the first transaction in the portfolio'''
 		cursor = self.db.select("transactions", orderBy = "date asc", limit = 1)
 		row = cursor.fetchone()
 		if row:
 			return Transaction.parseDate(row["date"])
-		return False		
+		return False
+	
+	def getTransaction(self, id):
+		'''Return a transaction with uniqueId equal to id.  Returns False if not found.'''
+		for t in self.transactions:
+			if t.uniqueId == id:
+				return t
+		return False
 
 	def getTransactions(self, ticker = False, ascending = False, getDeleted = False, deletedOnly = False, buysToCash = True, limit = False, transType = False):
+		'''Return a list of all transactions.
+		
+		Parameters:
+		* ticker: The ticker to search for.  False to return all transactions.  Default is False.
+		* ascending: If transactions should be returned in ascending order (by date).  Default is False.
+		* getDeleted: If deleted transactions should be returned.  Default is False.
+		* deletedOnly: If only deleted transactions should be returned.  Default is False.
+		* buysToCash: If buy/sell transactions should be converted to cash deposits/withdrawals.  Mainly useful when rebuilding the cash position of a portfolio.  Default is True.
+		* limit: If only a certain number of transactions should be returned.  Pass in an integer value.  Default is False (no limit).
+		* transType: Reurn transactions of a specific type.  Default is False (return all transaction types).
+		'''
 		retTrans = []
 		
 		if ticker:
@@ -746,7 +888,7 @@ class Portfolio:
 		return retTrans
 	
 	def getDividendForDate(self, ticker, date):
-		"""Get a dividend nearest to the given ticker and date"""
+		'''Get a dividend nearest to the given ticker and date'''
 		query = "select * From transactions where ticker='%s' and type='%s' order by abs(julianday('%s') - julianday(date)) limit 1;" % (ticker, Transaction.dividend, date.strftime("%Y-%m-%d"))
 		res = self.db.query(query)
 		row = res.fetchone()
@@ -768,6 +910,7 @@ class Portfolio:
 			return False
 	
 	def getUserPrices(self, ticker):
+		'''Return the user prices for this ticker.  User prices are zzz'''
 		retPrices = []
 		
 		ticker = ticker.upper()
@@ -778,6 +921,7 @@ class Portfolio:
 		return retPrices
 	
 	def addUserAndTransactionPrices(self, ticker, prices, optionPrices, transactions):
+		'''Add user prices and prices based on transactions to existing stock data'''
 		userPrices = self.getUserPrices(ticker)
 		
 		# Use buys/sells to add to user price
@@ -822,6 +966,7 @@ class Portfolio:
 		
 	
 	def getPositionCheck(self, ticker):
+		'''Return position checks for this ticker'''
 		checks = []
 		
 		cursor = self.db.select("positionCheck", where = {"ticker": ticker})
@@ -836,6 +981,7 @@ class Portfolio:
 		return checks
 
 	def getPositionForCheck(self, ticker, check):
+		'''Check the closest position history for a given position check'''
 		# Check position on 3 closest days
 		d = datetime.datetime(check.date.year, check.date.month, check.date.day, 0, 0, 0)
 
@@ -859,6 +1005,7 @@ class Portfolio:
 		return same
 
 	def getPositionHistory(self, ticker, startDate = False):
+		'''Return the computed position history for the given ticker.  May filter based on an optional start date.'''
 		where = {"ticker": ticker}
 		if startDate:
 			where["date >="] = "%d-%02d-%02d 00:00:00" % (startDate.year, startDate.month, startDate.day)
@@ -872,6 +1019,7 @@ class Portfolio:
 		return ret
 	
 	def getPositionOnDate(self, ticker, date):
+		'''Return the position history on a specific date.'''
 		cursor = self.db.select("positionHistory", where = {"ticker": ticker, "date": date.strftime("%Y-%m-%d %H:%M:%S")})
 		
 		row = cursor.fetchone()
@@ -883,6 +1031,7 @@ class Portfolio:
 		return row
 	
 	def getPositions(self, current = False):
+		'''Return a list of all positions.  Pass current as True to return only active positions.'''
 		cursor = self.db.getConn().execute("select ticker, shares, value, max(date) as maxDate from positionHistory group by ticker")
 		
 		rows = []
@@ -904,6 +1053,7 @@ class Portfolio:
 		return ret
 	
 	def getPositionFirstLast(self, ticker):
+		'''Return the first and last date of the position's history.  The first date is typically the first transaction date.  The last date is typically today.'''
 		conn = self.db.getConn()
 		select = "select min(date) as minDate, max(date) as maxDate from positionHistory where ticker=?"
 		cursor = conn.execute(select, [ticker])
@@ -920,6 +1070,7 @@ class Portfolio:
 		return (d1, d2)
 	
 	def sumInflow(self, first, last, ticker = False):
+		'''Return the amount of money added to this position between two dates.  If ticker is False then all positions are summed.'''
 		transactions = self.getTransactions(ticker, transType = Transaction.deposit)
 		
 		# Filter for transactions in time period, then sum
@@ -931,7 +1082,6 @@ class Portfolio:
 		# Filter for transactions in time period, then sum
 		tInDate = filter(lambda t: first <= t.date <= last, transactions)
 		sumA = reduce(lambda x, t: x - abs(t.total), tInDate, sumA)
-
 
 		# Next do transferIn and transferOut
 		transactions = self.getTransactions(ticker, transType = Transaction.transferIn)
@@ -945,6 +1095,7 @@ class Portfolio:
 		return sumA + sumB
 
 	def sumDistributions(self, first, last, ticker = False):
+		'''Return the amount of dividends this position has generated between two dates.  If ticker is False then all positions are summed.'''
 		transactions = self.getTransactions(ticker, transType = Transaction.dividend)
 		
 		# Filter for transactions in time period, then sum
@@ -960,6 +1111,7 @@ class Portfolio:
 		return sum
 	
 	def sumFees(self, first, last, ticker = False):
+		'''Return the fees this position has generated between two dates.  If ticker is False then all positions are summed.'''
 		transactions = self.getTransactions(ticker)
 		
 		# Filter for transactions in time period, then sum
@@ -967,8 +1119,8 @@ class Portfolio:
 		sum = reduce(lambda x, t: x + abs(t.fee), tInDate, 0.0)
 		return sum
 
-	# Returns (performance string, years)
 	def calculatePerformanceTimeWeighted(self, ticker, first, last, divide = True, dividend = True, format = True, isInception = False):
+		'''Calculate time weighted return for this position.  Return value is (performance string, years).'''
 		if last < first:
 			return ("n/a", 0)
 		
@@ -1010,8 +1162,8 @@ class Portfolio:
 		#print ticker, ret, val1, val2, years, days, first, last
 		return (ret, years)
 	
-	# Returns (performance string, years)
 	def calculatePerformanceIRR(self, ticker, first, last, divide = True, dividend = True, format = True, isInception = False):
+		'''Calculate internal rate of return for this position.  Return value is (performance string, years).'''
 		if ticker == "__CASH__":
 			raise Exception("Cannot calculate IRR for cash")
 		if last < first:
@@ -1098,8 +1250,8 @@ class Portfolio:
 		#print ticker, ret, val1, val2, years, days, first, last
 		return (ret, years)
 		
-	# Returns (performance string, years)
 	def calculatePerformanceProfit(self, ticker, first, last, divide = True, dividend = True, format = True, isInception = False):
+		'''Calculate profit for this position.  Return value is (performance string, years).'''
 		if last < first:
 			return ("n/a", 0)
 		
@@ -1133,8 +1285,8 @@ class Portfolio:
 		#print ticker, ret, val1, val2, years, days, first, last
 		return (ret, years)
 	
-	# Returns (performance string, years)
 	def calculatePerformanceValue(self, ticker, first, last, divide = True, dividend = True, format = True, isInception = False):
+		'''Calculate change in value for this position.  Return value is (performance string, years).'''
 		if last < first:
 			return ("n/a", 0)
 		
@@ -1166,6 +1318,7 @@ class Portfolio:
 		return (ret, years)
 	
 	def runRules(self):
+		'''Run banking rules for this portfolio.  Assigns categories to spending.'''
 		rules = self.getRules()
 		
 		# First build unique tickers
@@ -1186,6 +1339,7 @@ class Portfolio:
 					self.setCategory(t, r[1])
 	
 	def getAllocation(self):
+		'''Return the allocation for this portfolio.  Returns a dictionary[ticker] = percentage.'''
 		cursor = self.db.select("allocation", where = {"percentage >=": 0})
 		
 		ret = {}
@@ -1195,6 +1349,7 @@ class Portfolio:
 		return ret
 	
 	def saveAllocation(self, oldTicker, newTicker, percent = False):
+		'''Change the allocation for one ticker.  if newTicker is False then the allocation for the ticker is removed.'''
 		if not newTicker:
 			self.db.delete("allocation", {"ticker": oldTicker})
 		elif oldTicker:
@@ -1203,6 +1358,7 @@ class Portfolio:
 			self.db.insert("allocation", {"ticker": newTicker, "percentage": percent})
 	
 	def rebuildBenchmarkTransactions(self, stockData, status):
+		'''Rebuild transfer in, dividend reinvest and rebalance transactions for a benchmark portfolio'''
 		if status:
 			status.setStatus("Rebuilding Benchmark Transactions", 0)
 		self.db.beginTransaction()
@@ -1401,6 +1557,7 @@ class Portfolio:
 		self.db.commitTransaction()
 	
 	def rebuildCombinedTransactions(self, update):
+		'''Rebuild a combined portfolio's transactions by aggregating all transactions from sub-portfolios'''
 		# Rebuild transactions
 		self.db.delete("transactions")
 		
@@ -1436,6 +1593,7 @@ class Portfolio:
 
 				# First sum up number of computed shares until check
 				if ticker == "__CASH__":
+					splitAdjust = 1
 					for t in transactions:
 						# Only use check if it's valid
 						if t.date > targetDate:
@@ -1447,6 +1605,7 @@ class Portfolio:
 							if update:
 								update.addError("Unknown cash transaction when updating position check %s" % t)
 				else:
+					splitAdjust = 1
 					for t in transactions:
 						# Only use check if it's valid and ticker matches (options may have different ticker)
 						if t.date > targetDate or t.formatTicker() != ticker:
@@ -1462,6 +1621,8 @@ class Portfolio:
 							else:
 								# 2-1 split total is 2.0
 								adjustShares = shares * (t.getTotal() - 1.0)
+								if t.getTotal() != 0:
+									splitAdjust *= t.getTotal()
 	
 							shares += adjustShares
 						elif t.type == Transaction.spinoff and t.ticker2 == ticker:
@@ -1480,7 +1641,7 @@ class Portfolio:
 				# Add shares based on the first date
 				# Get us to the closest point of matching the check
 				# Because we looped over multiple windows
-				addShares = closest
+				addShares = closest / splitAdjust
 				if update:
 					update.addMessage("Beginning %s with %.2f shares" % (ticker, addShares))
 				
@@ -1493,53 +1654,65 @@ class Portfolio:
 					# Get stock value on date
 					price = stockData.getNearestPrice(ticker, portfolioFirstDate)
 					if price:
-						cash = price["close"] * addShares
-						
-						# Add deposit to cash transactions
-						# NOTE: targetDate is the closest date of the transaction check when price data is found
-						targetDate2 = datetime.datetime(targetDate.year, targetDate.month, targetDate.day)
-						if not targetDate2 in cashToAdd:
-							cashToAdd[targetDate2] = 0
-						cashToAdd[targetDate2] += cash
-						
-						if addShares > 0:
-							t = Transaction(
-								False,
-								ticker,
-								targetDate,
-								Transaction.buy,
-								cash,
-								shares = addShares,
-								pricePerShare = price["close"],
-								auto = True)
-						else:
-							t = Transaction(
-								False,
-								ticker,
-								targetDate,
-								Transaction.sell,
-								cash,
-								shares = abs(addShares),
-								pricePerShare = price["close"],
-								auto = True)
-						
-						# Insert into transactions list and save to database
-						i = 0
-						for t2 in transactions:
-							if t2.date > t.date:
-								break
-							i += 1
-						transactions.insert(i, t)
-						
-						t.save(self.db)
+						closingPrice = price["close"]
 					else:
-						if update:
-							update.addMessage("No data found for %s for position check on %s" % (ticker, check.date.strftime("%B %d, %Y")))
+						# Use first buy date
+						closingPrice = 1
+						for t in transactions:
+							if t.type in [Transaction.buy, Transaction.sell, Transaction.short, Transaction.cover]:
+								closingPrice = t.pricePerShare
+								break
+
+					cash = closingPrice * addShares
+						
+					# Add deposit to cash transactions
+					# NOTE: targetDate2 is the first transaction date for this position (used for transfer in)
+					# NOTE: targetDate is the date of the position check (used for transfer out)
+					if len(transactions) > 0:
+						targetDate2 = transactions[0].date
+						targetDate2 = datetime.datetime(targetDate2.year, targetDate2.month, targetDate2.day)
+					else:
+						targetDate2 = targetDate
+					#if not targetDate2 in cashToAdd:
+					#	cashToAdd[targetDate2] = 0
+					#cashToAdd[targetDate2] += cash
+					
+					if addShares > 0:
+						t = Transaction(
+							False,
+							ticker,
+							targetDate2,
+							Transaction.transferIn,
+							cash,
+							shares = addShares,
+							pricePerShare = closingPrice,
+							auto = True)
+					else:
+						t = Transaction(
+							False,
+							ticker,
+							targetDate,
+							Transaction.transferOut,
+							cash,
+							shares = abs(addShares),
+							pricePerShare = closingPrice,
+							auto = True)
+					
+					# Insert into transactions list and save to database
+					i = 0
+					for t2 in transactions:
+						if t2.date > t.date:
+							break
+						i += 1
+					transactions.insert(i, t)
+					
+					t.save(self.db)
 			elif check.shares < shares - 1.0e-6:
 				if update:
 					update.addError("ERROR TOO MANY SHARES should be % fbut is %f" % (check.shares, shares))
 
 	def addAutoSplitDividendTransactions(self, ticker, transactions, update):
+		'''If this portfolios uses auto split or dividend transactions then replace existing split/dividend transactions with auto-generated ones'''
 		if ticker == "__CASH__":
 			return
 		
@@ -1667,6 +1840,7 @@ class Portfolio:
 				dividendIndex += 1
 
 	def rebuildBankPositionHistory(self, update = False):
+		'''Rebuild the position history for a bank portfolio'''
 		# Only allow one thread to update a portfolio at a time
 		appGlobal.getApp().beginBigTask('rebuilding ' + self.name, update)
 		
@@ -1802,6 +1976,7 @@ class Portfolio:
 		appGlobal.getApp().endBigTask()
 
 	def rebuildPositionHistory(self, stockData, update = False):
+		'''Rebuild the position history for a brokerage, benchmark or combined portfolio'''
 		# TODO: do not combine individual days
 		def addToBasis(ticker, d, s, pps):
 			if ticker not in basis:
@@ -2269,11 +2444,12 @@ class Portfolio:
 
 				# Check for negative cash
 				# If negative, add deposits as needed
-				if ticker == "__CASH__":
+				if ticker == "__CASH__" and self.portPrefs.getAutoAdjust():
 					currentCash = 0.0
 					for t in transactions:
 						currentCash += t.getCashMod()
-						if currentCash < 0:
+						# For now, do not add deposits if cash is less than 0
+						'''if currentCash < 0:
 							# Add deposit
 							depositAmount = -currentCash
 							currentCash += depositAmount
@@ -2281,7 +2457,7 @@ class Portfolio:
 							targetDate = datetime.datetime(t.date.year, t.date.month, t.date.day)
 							if not targetDate in cashToAdd:
 								cashToAdd[targetDate] = 0.0
-							cashToAdd[targetDate] += depositAmount
+							cashToAdd[targetDate] += depositAmount'''
 
 					# Add deposits to cash transactions
 					if cashToAdd:
@@ -2941,6 +3117,7 @@ class Portfolio:
 				raise
 		
 	def chartByType(self, chartBase, type):
+		'''Chart a portfolio by a chart type.  chartBase is a ChartWidget class and type is a chart type (eg, oneYearVsBenchmark)'''
 		year = datetime.datetime.now() - datetime.timedelta(days = 365)
 		threeMonths = datetime.datetime.now() - datetime.timedelta(days = 90)
 		month = datetime.datetime.now() - datetime.timedelta(days = 30)
@@ -3175,6 +3352,20 @@ class Portfolio:
 		chartBase.legend = True
 
 	def drawChart(self, chartBase, stockData, tickers, period = chart.oneYear, chartType = "returns (time weighted)", doSplit = False, doDividend = False, doFee = False, doBenchmark = False, doGradient = False, title = False):
+		'''Draw a chart.  The parameters are as follows:
+		
+			* chartBase: A ChartWidget class, where the chart will be drawn
+			* stockData: The application's StockData class
+			* tickers: A ticker string, or a list of ticker strings
+			* period: The period to draw the chart (eg, chart.oneYear)
+			* chartType: One of the values returned from chart.getChartTypes(portfolio)
+			* doSplit: Whether split adjusted returns should be included
+			* doDividend: Whether dividend adjusted returns should be included
+			* doFee: Whether fee adjusted returns should be included
+			* doBenchmark: Whether the benchmark should be included
+			* doGradient: Whether to include a gradient
+		
+		'''
 		# No gradient for spending
 		if chartType == "spending":
 			doGradient = False
@@ -3225,14 +3416,15 @@ class Portfolio:
 			# Position inception
 			startDate = datetime.datetime(1900, 1, 1)
 		
-		# Bound startDate to the start of the portfolio
-		firstLast = self.getPositionFirstLast(tickers[0])
-		if firstLast:
-			startDate = max(startDate, firstLast[0])
-		else:
-			startDate2 = self.getStartDate()
-			if startDate2:
-				startDate = max(startDate, startDate2)
+		# Bound startDate to the start of the portfolio if not viewing transactions
+		if chartType != "transactions" or period == chart.positionInception:
+			firstLast = self.getPositionFirstLast(tickers[0])
+			if firstLast:
+				startDate = max(startDate, firstLast[0])
+			else:
+				startDate2 = self.getStartDate()
+				if startDate2:
+					startDate = max(startDate, startDate2)
 			
 		# Determine if we're charting since inception
 		isInception = startDate == self.getStartDate()
@@ -3568,20 +3760,20 @@ class Portfolio:
 					moneyOut = []
 
 					for t in transactions:
-                                        	# Non cash buys and sells
-                                        	if t.type in [Transaction.buy, Transaction.buyToOpen, Transaction.cover, Transaction.buyToClose, Transaction.transferIn]:
-                                                	t2 = copy.deepcopy(t)
-                                                	t2.ticker = "__CASH__"
-                                                	t2.fee = 0.0
-                                                	t2.type = Transaction.deposit
-                                                	t2.total = t.getCashMod()
+						# Non cash buys and sells
+						if t.type in [Transaction.buy, Transaction.buyToOpen, Transaction.cover, Transaction.buyToClose, Transaction.transferIn]:
+							t2 = copy.deepcopy(t)
+							t2.ticker = "__CASH__"
+							t2.fee = 0.0
+							t2.type = Transaction.deposit
+							t2.total = t.getCashMod()
 							moneyIn.append(t2)
-                                        	elif t.type in [Transaction.sell, Transaction.sellToOpen, Transaction.short, Transaction.sellToClose, Transaction.transferOut]:
-                                                	t2 = copy.deepcopy(t)
-                                                	t2.ticker = "__CASH__"
-                                                	t2.fee = 0.0
-                                                	t2.type = Transaction.withdrawal
-                                                	t2.total = t.getCashMod()
+						elif t.type in [Transaction.sell, Transaction.sellToOpen, Transaction.short, Transaction.sellToClose, Transaction.transferOut]:
+							t2 = copy.deepcopy(t)
+							t2.ticker = "__CASH__"
+							t2.fee = 0.0
+							t2.type = Transaction.withdrawal
+							t2.total = t.getCashMod()
 							moneyOut.append(t2)
 
 				moneyIn.sort(key = operator.attrgetter('date'))
@@ -3597,7 +3789,7 @@ class Portfolio:
 					value = norm * benchmarkHistory[p]["normSplit"]
 					pricesX.append(p)
 					pricesY.append(value)
-			elif chartType in ["profit", "value"]:
+			elif chartType in ["profit", "total value"]:
 				# Determine profit based on shares purchased
 				cashIn = 0
 				shares = 0
@@ -3650,6 +3842,7 @@ class Portfolio:
 				chartBase.addXY(pricesX, pricesY, benchmark.name, (0.5, 0.5, 0.5))
 
 	def getPerformanceTable(self, doCurrent = True, doDividend = True, type = "performance"):
+		'''Return a performance table.  Used by the performance tool.'''
 		tickers = self.getTickers()
 		if len(tickers) > 0:
 			tickers.append("__COMBINED__")
@@ -3735,7 +3928,7 @@ class Portfolio:
 		dates = sorted(activeCols.keys())
 
 		# Create columns
-		cols = ["Position"]
+		cols = ["Symbol"]
 		for date in dates:
 			if date == firstDayOfYear:
 				cols.append("YTD")
@@ -3799,6 +3992,7 @@ class Portfolio:
 		return [cols, data]
 	
 	def getSpendingTable(self, days = False, categorize = False, doMonthly = True):
+		'''Return a spending table.  Used by the spending tool.'''
 		tickers = self.getTickers()
 
 		row = 0
@@ -3876,6 +4070,7 @@ class Portfolio:
 		return [cols, data]
 
 	def getAllocationTable(self):
+		'''Return the allocation table.  Used by the allocation tool.'''
 		allocation = self.getAllocation()
 		positions = self.getPositions(current = True)
 
@@ -3985,6 +4180,7 @@ class Portfolio:
 		return data
 	
 	def getSummaryTable(self):
+		'''Return the summary table.  Used by the summary tool.'''
 		f = self.getPositionFirstLast("__COMBINED__")
 		if not f:
 			return
@@ -4084,8 +4280,97 @@ class Portfolio:
 				break
 
 		return table
+		
+	def errorCheckTransactions(self, stockData):
+		'''Return a list of transactions with potential errors'''
+		errors = []
+		
+		# Check for missing splits
+		for ticker in self.getPositions():
+			(first, last) = self.getPositionFirstLast(ticker)
+			dataSplits = stockData.getSplits(ticker, first, last)
+			portSplits = self.getTransactions(ticker, transType = Transaction.stockDividend)
+			for t in self.getTransactions(ticker, transType = Transaction.split):
+				portSplits.append(t)
+			
+			# Try to match actual splits with portfolio splits
+			if dataSplits and portSplits:
+				for s in dataSplits[:]:
+					for s2 in portSplits:
+						diff = abs(s["date"] - s2.date)
+						
+						if diff < datetime.timedelta(7):
+							position = self.getPositionOnDate(ticker, s["date"])
+							if position:
+								if s2.type == Transaction.stockDividend:
+									# Determine shares before ths split
+									# TODO: make work with buys/sells/etc
+									shares = position["shares"] - position["shares"] / s["value"]
+									portShares = s2.shares
+									if abs(shares - portShares) > 1.0e-6:
+										# Match but incorrect shares
+										errors.append(TransactionErrorCheck(s2.uniqueId, ticker, s2.type, s2.date, s["date"], s2.shares, shares))
+								else:
+									if abs(s2.total - s["value"]) > 1.0e-6:
+										# Match but incorrect shares
+										errors.append(TransactionErrorCheck(s2.uniqueId, ticker, s2.type, s2.date, s["date"], s2.total, s["value"]))
+							
+							# Check for proper date based on stock values
+							# Start one week prior, find best match
+							interval = -7
+							bestInterval = -7
+							bestDiff = 1.0e6
+							lastValue = stockData.getPrice(ticker, s2.date + datetime.timedelta(days = interval))
+							while interval < 7:
+								interval += 1
+								nextValue = stockData.getPrice(ticker, s2.date + datetime.timedelta(days = interval))
+								if lastValue and nextValue and nextValue["close"] != 0:
+									thisSplit = lastValue["close"] / nextValue["close"]
+									thisDiff = abs(thisSplit - s["value"])
+									if thisDiff < bestDiff:
+										bestInterval = interval
+										bestDiff = thisDiff
+								if nextValue:
+									lastValue = nextValue
+							if bestInterval != 0:
+								errors.append(TransactionErrorCheck(s2.uniqueId, ticker, s2.type, s2.date, s2.date + datetime.timedelta(days = bestInterval), s2.total, s2.total))
+							
+							# Matched, remove
+							dataSplits.remove(s)
+							portSplits.remove(s2)
+							break
+			
+			# Now add missing splits to error check
+			if dataSplits:
+				for s in dataSplits:
+					date = s["date"]
+					
+					# Determine split value
+					splitVal = Transaction.splitValueToString(s["value"])
+					
+					# Determine shares for stock dividend
+					shares = "?"
+					position = self.getPositionOnDate(ticker, s["date"])
+					if position:
+						shares = position["shares"] * (s["value"] - 1.0)
+						shares = "%.3f" % shares
+
+					errors.append(TransactionErrorCheck(False, ticker, Transaction.split, s["date"], s["date"], s["value"], s["value"]))
+			
+			# Check for removed splits only if we have stock data
+			if portSplits and stockData.getFirstDate(ticker) != False:
+				for s2 in portSplits:
+					errors.append(TransactionErrorCheck(s2.uniqueId, ticker, s2.type, s2.date, s2.date, s2.total, s2.total, delete = True))
+		
+		# Remove ignored errors
+		for e in errors[:]:
+			if self.isTransactionCheckIgnored(e):
+				errors.remove(e)
+	
+		return errors
 	
 	def errorCheck(self, stockData):
+		'''Run a comprehensive error check.  Used by the error check tool.'''
 		errors = []
 		
 		# Check for negative cash positions
@@ -4107,7 +4392,7 @@ class Portfolio:
 				continue
 			
 			if not transactions[0].type in [Transaction.buy, Transaction.transferIn, Transaction.spinoff, Transaction.short, Transaction.sellToOpen, Transaction.buyToOpen]:
-				errors.append(["First transaction is not buy", "Severe", "The first transaction for %s is not a buy transaction.  This position will not be included in performance calculations.  Add a buy transaction, a transfer transaction or a spinoff transaction for this position." % ticker])
+				errors.append(["First transaction is not buy", "Severe", "The first transaction for %s is not a buy transaction.  This symbol will not be included in performance calculations.  Add a buy transaction, a transfer transaction or a spinoff transaction for this symbol." % ticker])
 				
 		# Check for data not matching positionCheck
 		for ticker in self.getPositions():
@@ -4142,7 +4427,7 @@ class Portfolio:
 								didMinor = True
 								continue
 						elif not didSevere:
-							text = "The computed shares for %s on %s is incorrect.  The computed shares is %s but the correct shares is %s.  This position will not be included in performance calculations.  This could be due to a missing or incorrect buy, sell or stock split transaction." % (ticker, check.date.strftime("%m/%d/%Y"), Transaction.formatFloat(pos["shares"]), Transaction.formatFloat(check.shares))
+							text = "The computed shares for %s on %s is incorrect.  The computed shares is %s but the correct shares is %s.  This symbol will not be included in performance calculations.  This could be due to a missing or incorrect buy, sell or stock split transaction." % (ticker, check.date.strftime("%m/%d/%Y"), Transaction.formatFloat(pos["shares"]), Transaction.formatFloat(check.shares))
 							if lastCorrectDate:
 								text += "  The last correct date was on %s." % lastCorrectDate.strftime("%m/%d/%Y")
 							errors.append(["Computed shares is incorrect", "Severe", text])
@@ -4204,7 +4489,7 @@ class Portfolio:
 						shares = position["shares"] * (s["value"] - 1.0)
 						shares = "%.3f" % shares
 
-					errors.append(["Missing split for " + ticker, "Severe", "A %s split occurred on %d/%d/%d.  A Stock Dividend transaction should be added for %s shares." % (splitVal, date.month, date.day, date.year, shares)])
+					errors.append(["Missing split for " + ticker, "Severe", "A %s split occurred on %d/%d/%d.  A %s Split transaction should be added." % (splitVal, date.month, date.day, date.year, splitVal)])
 			
 			if portSplits:
 				for s2 in portSplits:
@@ -4213,6 +4498,7 @@ class Portfolio:
 		return errors
 
 def checkBenchmarks(prefs):
+	'''Create benchmark portfolios, if they have not already been created.'''
 	def doCheck(name, allocation):
 		if not prefs.hasPortfolio(name):
 			prefs.addPortfolio(name)

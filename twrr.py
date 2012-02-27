@@ -228,7 +228,10 @@ class Twrr:
 		if den > 0:
 			#if len(returnsToday) > 1:
 			#	print returnsToday, "=", num / den, "yesterday", self.lastReturn
-			self.lastReturn *= num / den
+			if self.lastReturn == 0:
+				self.lastReturn = num / den
+			else:
+				self.lastReturn *= num / den
 		
 		# Check for adjustment on first day
 		if not self.yesterdayValue and self.adjustment:

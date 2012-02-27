@@ -1,27 +1,57 @@
-# Copyright (c) 2006-2010, Jesse Liesch
-# All rights reserved.
-# 
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#     * Redistributions of source code must retain the above copyright
-#       notice, this list of conditions and the following disclaimer.
-#     * Redistributions in binary form must reproduce the above copyright
-#       notice, this list of conditions and the following disclaimer in the
-#       documentation and/or other materials provided with the distribution.
-#     * Neither the name of the author nor the
-#       names of its contributors may be used to endorse or promote products
-#       derived from this software without specific prior written permission.
-# 
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" 
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE 
-# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE IMPLIED
-# DISCLAIMED. IN NO EVENT SHALL JESSE LIESCH BE LIABLE FOR ANY
-# DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-# ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+'''Copyright (c) 2006-2010, Jesse Liesch
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    * Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    * Neither the name of the author nor the
+      names of its contributors may be used to endorse or promote products
+      derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" 
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE 
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE IMPLIED
+DISCLAIMED. IN NO EVENT SHALL JESSE LIESCH BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+This is the main module for the Icarra investment software.  The most
+important files/modules are:
+
+appGlobal.py: Implements several helper functions such as returning the
+	active application (and thus the current portfolio and stock data
+	classes).
+
+transaction.py: Implements the Transction class.  Transactions are the heart
+	of any portfolio.  All holdings and returns are computed directly from a
+	portfolio's transactions.  Transactions are typically imported from an
+	OFX or broker-specific CSV file.
+
+portfolio.py: Implements the Portfolio class.  The Portfolio class contains
+	the portfolio's transactions and returns as well as a number of other
+	useful functions.  The portfolio class is the most important class for
+	accessing portfolio data.
+
+stockData.py: Implements the StockData class.  Used by the portfolio class
+	and other modules to retrieve stock quotes, dividends and splits.
+
+plugin.py: Defines the Plugin base class.  All Icarra tools are plugins.
+
+brokerage.py: Defines the Brokerage base class.  This class defines how
+	transactions are automatically imported via OFX and any additional
+	broker-specific behavior.
+
+editGrid.py: implements the EditGrid class.  Used to display table data.
+
+'''
 
 import sys
 import os
@@ -104,6 +134,7 @@ import webbrowser
 import icarraWebBrowser
 
 class ToolSelectorDelegate(QItemDelegate):
+	'''Increase the height of each tool in the tool selector by 10 pixels'''
 	def __init__(self, parent):
 		QItemDelegate.__init__(self, parent)
 		self.myHint = False
@@ -118,6 +149,7 @@ class ToolSelectorDelegate(QItemDelegate):
 		return self.myHint
 
 class ToolSelector(QListView):
+	''''ToolSelector implements the tool selection box found on the left-hand side of the main Icarra window.'''
 	def __init__(self, parent = None):
 		QWidget.__init__(self, parent)
 
@@ -147,6 +179,7 @@ class ToolSelector(QListView):
 			self.setStyleSheet("QListView::item { color: #444444; background: white; } QListView::item:selected{ background: #d8d8ff; }")
 	
 	def rebuild(self):
+		'''Search for all available plugins and add them to the tool selector.'''
 		self.tools = []
 		for plugin in getApp().plugins.getPlugins():
 			if appGlobal.getApp().portfolio.isBank() and plugin.forBank():
@@ -156,18 +189,22 @@ class ToolSelector(QListView):
 		self.finishAdd()
 	
 	def addTool(self, name):
+		'''Add a tool to the tool selector.'''
 		self.tools.append(name)
 	
 	def finishAdd(self):
+		'''Finish rebuilding tool selector.  Call this function when all tools hae been added.'''
 		self.myModel = QStringListModel(self.tools)
 		self.setModel(self.myModel)
 		self.connect(self.selectionModel(), SIGNAL("selectionChanged(QItemSelection, QItemSelection)"), self.newSelection)
 	
 	def newSelection(self, old, new):
+		'''Slot for selectionChanged'''
 		row = self.selectedIndexes()[0].row()
 		self.loadTool(self.tools[row])
 	
 	def selectTool(self, name):
+		'''Select a tool by plug in name, changing the active selection.  Qt will eventually call loadTool on the selected tool.'''
 		try:
 			index = self.model().index(self.tools.index(name))
 		except:
@@ -177,9 +214,11 @@ class ToolSelector(QListView):
 		self.selectionModel().setCurrentIndex(index, QItemSelectionModel.ClearAndSelect)
 	
 	def getSelectedTool(self):
+		'''Return the active tool (plugin name)'''
 		return self.tools[self.selectionModel().currentIndex().row()]
 	
 	def loadTool(self, tool):
+		'''Loads a new tool (plugin name) and may rebuild the portfolio if it is dirty'''
 		# Check for rebuilding portfolio if it's dirty
 		# Don't rebuild if background rebuilding is enabled
 		app = appGlobal.getApp()
@@ -224,6 +263,7 @@ class MainWindow(QMainWindow):
 		QMainWindow.__init__(self)
 	
 	def render(self):
+		'''Initialize the main window.  Create all widgets.'''
 		self.setWindowTitle('Icarra 2')
 		self.setMinimumSize(QSize(400, 300))
 		
@@ -280,12 +320,14 @@ class MainWindow(QMainWindow):
 		self.resize(prefs.getWidth(), prefs.getHeight())
 	
 	def resizeEvent(self, event):
+		'''resizeEvent slot.  Save main window width and height.'''
 		w = self.size().width()
 		h = self.size().height()
 		if w != prefs.getWidth() or h != prefs.getHeight():
 			prefs.setSize(w, h)
 
 	def exit(self):
+		'''Safely shut down Icarra'''
 		# Stop downloading data, rebuilding portfolios
 		# There may be a small delay while the current task completes
 		autoUpdater.stop(join = False)
@@ -309,6 +351,7 @@ class MainWindow(QMainWindow):
 		QCoreApplication.exit()
 
 	def closeEvent(self, event):
+		'''closeEvent slot.  Safely shut down.'''
 		self.exit()
 	
 	def about(self):
@@ -459,9 +502,11 @@ class Icarra2(QApplication):
 		appGlobal.getApp().started = True
 			
 	def checkIntro(self):
+		'''Check for showing the tutorial introduction'''
 		tutorial.check(tutorial.intro)
 
 	def createSamplePortfolio(self):
+		'''Create a sample portfolio of AAPL and XOM stock'''
 		# Check that not already created
 		if prefs.hasPortfolio("Sample Portfolio"):
 			return
@@ -518,12 +563,14 @@ class Icarra2(QApplication):
 		p.db.commitTransaction()
 	
 	def hideSplash(self):
+		'''Finish initializing the main app.  Hide the splash screen, show the main window.'''
 		if self.splash:
 			self.splash.close()
 		self.main.show()
 		self.main.raise_()
 		
 		# Set timer for tutorial
+		# Wait a little while to give everything a chance to display
 		self.tutorialTimer = QTimer()
 		self.tutorialTimer.setInterval(500)
 		self.tutorialTimer.setSingleShot(True)
@@ -531,6 +578,11 @@ class Icarra2(QApplication):
 		self.tutorialTimer.start()
 	
 	def beginBigTask(self, description, status = False):
+		'''Begin a new big task.  This function may be called by any thread at any time.
+		
+		A big task is something that should stop another thread from performing another big task.  Examples include downloading stock data, rebuilding portfolios and importing transactions.
+		
+		'''
 		# Get the bigTask mutex
 		# Check if we're currently doing anything big
 		# If so, wait for it to finish
@@ -543,6 +595,7 @@ class Icarra2(QApplication):
 		self.bigTaskCondition.release()
 	
 	def endBigTask(self):
+		'''End a big task.  This function may be called by any thread at any time.'''
 		# We're no longer doing anything big
 		# Wake up anyone who is waiting
 		self.bigTaskCondition.acquire()
@@ -551,19 +604,21 @@ class Icarra2(QApplication):
 		self.bigTaskCondition.release()
 
 	def getBigTask(self):
-		'''Return the current big task, or False if no big task'''
+		'''Return the current big task, or False if no big task.'''
 		self.bigTaskCondition.acquire()
 		task = self.bigTask
 		self.bigTaskCondition.release()
 		return task
 
 	def checkFailTimer(self):
+		'''Check if we failed to connect to the Icarra server'''
 		if appGlobal.getFailConnected() and not self.notifieldFailConnected:
 			self.notifieldFailConnected = True
 			
 			QMessageBox(QMessageBox.Critical, "Could not connect", "Icarra could not connect to the stock data server.  You may continue using Icarra but new stock data will not be downloaded until Icarra has been restarted.").exec_()
 
 	def loadPortfolio(self, name):
+		'''Load a portfolio'''
 		global prefs
 		prefs.setLastPortfolio(name)
 				
@@ -578,7 +633,10 @@ class Icarra2(QApplication):
 			a.setChecked(a.text().replace("&&", "&") == name)
 
 		try:
-			self.portfolio = Portfolio(name)
+			try:
+				self.portfolio = Portfolio(name)
+			except:
+				self.portfolio = Portfolio("S&P 500")
 			self.portfolio.readFromDb()
 	
 			self.main.ts.rebuild()
@@ -594,17 +652,23 @@ class Icarra2(QApplication):
 		except Exception, e:
 			self.toolWidget = QLabel("Error while loading plugin: %s\n%s" % (e, "".join(traceback.format_exc())))
 			self.main.toolLayout.addWidget(self.toolWidget)
+		
+		self.rebuildPortfoliosMenu(load = True)
 	
 	def selectPortfolio(self, t):
+		'''Select an item from the portfolio menu'''
 		# Check for new portfolio using shortcut
 		if t.shortcut() == "CTRL+N":
 			d = NewPortfolio(self.main)
 			d.exec_()
 		elif t.shortcut() == "CTRL+I":
-			# Import, ignore here
+			# Import, ignore here, handled by other slot
 			pass
 		elif t.shortcut() == "CTRL+R":
-			# Rebuild, ignore here
+			# Rebuild, ignore here, handled by other slot
+			pass
+		elif t == self.deleteAction:
+			# Delete portfolio, handled by other slot
 			pass
 		else:
 			name = str(t.text())
@@ -612,13 +676,69 @@ class Icarra2(QApplication):
 			self.loadPortfolio(name)
 
 	def importTransactions(self):
+		'''Import transaction slot, import transactions for the current portfolio'''
 		brokerage = self.plugins.getBrokerage(self.portfolio.brokerage)
 		if not brokerage:
 			print "no brokerage"
 
 		self.plugins.getPlugin("Transactions").doImport()
+	
+	def deletePortfolio(self):
+		'''Show the portfolio delete dialog and possibly delete the portfolio'''
+
+		class DeletePortfolioDialog(QDialog):
+			def __init__(self, parent):
+				QDialog.__init__(self, parent)
+				self.setWindowTitle("Delete Portfolio")
+				self.doDelete = False
+				
+				vbox = QVBoxLayout(self)
+				
+				vbox.addWidget(QLabel("Delete this portfolio?  Are you sure?"))
+				vbox.addSpacing(10)
+		
+				vbox.addWidget(QLabel("Type \"delete\" into the text box:"))
+				self.line = QLineEdit()
+				self.connect(self.line, SIGNAL("textChanged(QString)"), self.lineChanged)
+				vbox.addWidget(self.line)
+				vbox.addSpacing(5)
+
+				hor = QHBoxLayout()
+				hor.addStretch(1000)
+				vbox.addLayout(hor)
+				
+				cancel = QPushButton("Cancel")
+				cancel.setDefault(True)
+				hor.addWidget(cancel)
+				self.connect(cancel, SIGNAL("clicked()"), SLOT("reject()"))
+		
+				self.delete = QPushButton("Delete")
+				self.delete.setDisabled(True)
+				hor.addWidget(self.delete)
+				self.connect(self.delete, SIGNAL("clicked()"), self.onDelete)
+		
+				self.exec_()
+			
+			def lineChanged(self, text):
+				if str(text).lower() == "delete":
+					self.delete.setEnabled(True)
+				else:
+					self.delete.setEnabled(False)
+			
+			def onDelete(self):
+				self.doDelete = True
+				self.close()
+		
+		delete = DeletePortfolioDialog(self.main)
+		if delete.doDelete:
+			self.portfolio.delete(self.prefs)
+			del self.portfolioMenuNames[self.portfolio.name]
+			self.loadPortfolio("S&P 500")
+			self.rebuildPortfoliosMenu()
 
 	def rebuildPortfolio(self):
+		'''Rebuild the active portfolio'''
+		
 		p =  self.portfolio
 		update = StatusUpdate(app.main, modal = False)
 		
@@ -629,6 +749,7 @@ class Icarra2(QApplication):
 		update.finishSubTask("Finished rebuilding " + p.name)
 	
 	def buildPortfolioMenuNames(self):
+		'''Cache the names of all portfolios'''
 		self.portfolioMenuNames = {}
 		for name in prefs.getPortfolios():
 			p = Portfolio(name)
@@ -642,6 +763,7 @@ class Icarra2(QApplication):
 			
 
 	def rebuildPortfoliosMenu(self, load = True):
+		'''Rebuild the portfolios menu.  Called at startup and when adding/deleting/renaming a portfolio.'''
 		global prefs
 		
 		# Add or clear menu
@@ -655,6 +777,12 @@ class Icarra2(QApplication):
 		n = QAction("New Portfolio", self.main)
 		n.setShortcut("CTRL+N")
 		self.portfoliosMenu.addAction(n)
+
+		self.deleteAction = QAction("Delete Portfolio", self.main)
+		if self.portfolio and self.portfolio.name == "S&P 500":
+			self.deleteAction.setDisabled(True)
+		self.portfoliosMenu.addAction(self.deleteAction)
+		self.connect(self.deleteAction, SIGNAL("triggered()"), self.deletePortfolio)
 
 		self.importTransactionsAction = QAction("Import Transactions", self.main)
 		self.importTransactionsAction.setShortcut("CTRL+I")
@@ -690,6 +818,7 @@ class Icarra2(QApplication):
 			self.portfoliosMenu.addAction(a)
 
 	def getUniqueId(self):
+		'''Get a unique identifier for each application instance'''
 		# Create uniqueId
 		id = self.prefs.getUniqueId()
 		if id == "":
@@ -698,7 +827,7 @@ class Icarra2(QApplication):
 		return id
 
 	def checkVersion(self):
-		# Check new
+		'''Check for new Icarra versions.  The latest version is retrieved when downloading stock data.'''
 		(newMajor, newMinor, newRelease) = self.prefs.getLatestVersion()
 		if newMajor > appGlobal.gMajorVersion or (newMajor == appGlobal.gMajorVersion and newMinor > appGlobal.gMinorVersion) or (newMajor == appGlobal.gMajorVersion and newMinor == appGlobal.gMinorVersion and newRelease > appGlobal.gRelease):
 			# Remind once per week
@@ -711,93 +840,105 @@ class Icarra2(QApplication):
 				d = newVersionFrame.NewVersion(newMajor, newMinor, newRelease)
 
 	def startOfxDebug(self):
+		'''Open the OFX debugging window and allow OFX data to be logged.'''
 		if self.ofxDebugFrame:
 			return
 
 		self.ofxDebugFrame = OfxDebugFrame()
 	
+	def stopOfxDebug(self):
+		'''Close the OFX debugging window and stop allowing OFX data to be logged.'''
+		if not self.ofxDebugFrame:
+			return
+
+		self.ofxDebugFrame.close()
+		self.ofxDebugFrame = False
+
 	def addThreadSafeError(self, area, error):
+		'''Display an error.  May be called from a separate thread.'''
 		self.errorMutex.acquire()
 		print "THREAD ERRROR:", area, error
 		self.errorList.append((area, error))
 		self.errorMutex.release()
 	
 	def checkThreadSafeError(self):
+		'''Check for thread safe errors.  Called when a new tool is loaded.'''
 		self.errorMutex.acquire()
 		for (area, error) in self.errorList:
 			message = QMessageBox(QMessageBox.Critical, area, error).exec_()
 		self.errorList = []
 		self.errorMutex.release()
 
-if "--broker-info" in sys.argv:
-	app = Icarra2(sys.argv)
-
-	print "<h2>Notes</h2>"
-	for b in app.plugins.getBrokerages():
-		if b.getNotes():
-			print b.getName()
-			print "<ul>"
-			for n in b.getNotes():
-				print "<li>", n, "</li>"
-			print "</ul>"
-		else:
-			print "<p>", b.getName(), "</p>"
-	print "<p>Is your brokerage not supported?  Contact us in the forum &mdash; we would love to help!</p>"
-	app.exit()
-	sys.exit()
-
-if "--regression" in sys.argv:
-	import traceback
-	app = Icarra2(sys.argv)
+if __name__ == '__main__':
+	if "--broker-info" in sys.argv:
+		app = Icarra2(sys.argv)
 	
-	try:
-		import regression
-		regression.run(sys.argv)
-	except Exception, e:
-		print "Error running regression:"
-		print traceback.format_exc()
-	
-	app.exit()
-	sys.exit()
-
-if "--rebuild" in sys.argv:
-	import traceback
-	app = Icarra2(sys.argv)
-	
-	try:
-		p = Portfolio(sys.argv[2])
-		app.portfolio = p
-		p.rebuildPositionHistory(app.stockData)
-	except Exception, e:
-		print "Error running regression:"
-		print traceback.format_exc()
-	
-	app.exit()
-	sys.exit()
-
-if "--import" in sys.argv:
-	f = open(sys.argv[2], "r")
-	if not f:
-		print "Could not open", sys.argv[2]
+		print "<h2>Notes</h2>"
+		for b in app.plugins.getBrokerages():
+			if b.getNotes():
+				print b.getName()
+				print "<ul>"
+				for n in b.getNotes():
+					print "<li>", n, "</li>"
+				print "</ul>"
+			else:
+				print "<p>", b.getName(), "</p>"
+		print "<p>Is your brokerage not supported?  Contact us in the forum &mdash; we would love to help!</p>"
+		app.exit()
 		sys.exit()
-	data = f.read()
 	
-	for format in getFileFormats():
-		if format.Guess(data):
-			print "Is", format
-			(numNew, numOld, newTickers) = format.StartParse(data, False, False)
-			print "New: %d, Old: %d, Tickers: %s" % (numNew, numOld, newTickers)
-			sys.exit(0)
-	print "Did not guess", sys.argv[2]
-
-# Launch and run app
-# If exception, stop autoUpdater thread and re-raise exception
-try:
-	app = Icarra2(sys.argv)
-	if app.started:
-		app.exec_()
-	else:
-		app.quit()
-except:
-	autoUpdater.stop()
-	raise
+	if "--regression" in sys.argv:
+		import traceback
+		app = Icarra2(sys.argv)
+		
+		try:
+			import regression
+			regression.run(sys.argv)
+		except Exception, e:
+			print "Error running regression:"
+			print traceback.format_exc()
+		
+		app.exit()
+		sys.exit()
+	
+	if "--rebuild" in sys.argv:
+		import traceback
+		app = Icarra2(sys.argv)
+		
+		try:
+			p = Portfolio(sys.argv[2])
+			app.portfolio = p
+			p.rebuildPositionHistory(app.stockData)
+		except Exception, e:
+			print "Error running regression:"
+			print traceback.format_exc()
+		
+		app.exit()
+		sys.exit()
+	
+	if "--import" in sys.argv:
+		f = open(sys.argv[2], "r")
+		if not f:
+			print "Could not open", sys.argv[2]
+			sys.exit()
+		data = f.read()
+		
+		for format in getFileFormats():
+			if format.Guess(data):
+				print "Is", format
+				(numNew, numOld, newTickers) = format.StartParse(data, False, False)
+				print "New: %d, Old: %d, Tickers: %s" % (numNew, numOld, newTickers)
+				sys.exit(0)
+		print "Did not guess", sys.argv[2]
+	
+	# Launch and run app
+	# If exception, stop autoUpdater thread and re-raise exception
+	try:
+		app = Icarra2(sys.argv)
+		if app.started:
+			app.exec_()
+		else:
+			app.quit()
+	except:
+		autoUpdater.stop()
+		raise

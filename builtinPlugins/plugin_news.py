@@ -53,9 +53,6 @@ class Plugin(PluginBase):
 	def createWidget(self, parent):
 		return NewsWidget(parent)
 	
-	def reRender(self, panel, app):
-		pass
-
 	def finalize(self):
 		pass
 
@@ -64,7 +61,7 @@ class NewsModel(EditGridModel):
 		EditGridModel.__init__(self, parent, *args)
 		self.ticker = "__COMBINED__"
 		
-		self.setColumns(["Position", "Date", "Rating", "Title", "Summary"])
+		self.setColumns(["Symbol", "Date", "Rating", "Title", "Summary"])
 	
 	def setNews(self):
 		if self.ticker == "__COMBINED__":
@@ -126,14 +123,14 @@ class NewsWidget(QWidget):
 		hbox.addWidget(getNews)
 		self.connect(getNews, SIGNAL("clicked()"), self.onGetNews)
 
-		label = QLabel("Position:")
+		label = QLabel("Symbol:")
 		hbox.addWidget(label)
 		self.tickers = app.portfolio.getTickers()
 		if "__CASH__" in self.tickers:
 			self.tickers.remove("__CASH__")
 		if "__COMBINED__" in self.tickers:
 			self.tickers.remove("__COMBINED__")
-		self.tickers.insert(0, "All Positions")
+		self.tickers.insert(0, "All Symbols")
 		ticker = app.portfolio.getLastTicker()
 		
 		self.tickerCombo = QComboBox()
@@ -229,7 +226,7 @@ class NewsWidget(QWidget):
 		
 	def newTicker(self, index):
 		ticker = self.tickers[index]
-		if ticker == "All Positions":
+		if ticker == "All Symbols":
 			ticker = "__COMBINED__"
 		appGlobal.getApp().portfolio.setLastTicker(ticker)
 		self.model.ticker = ticker

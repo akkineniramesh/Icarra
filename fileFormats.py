@@ -208,7 +208,7 @@ class Ofx(FileFormat):
 			if checkFid and checkFid == testBrokerage.getFid():
 				score += 1
 			
-			if score > bestBrokerageScore and brokerage.getName() != portfolio.brokerage:
+			if score > bestBrokerageScore and (not brokerage or brokerage.getName() != portfolio.brokerage):
 				brokerage = testBrokerage
 				bestBrokerageScore = score
 				
@@ -845,19 +845,28 @@ class Ofx(FileFormat):
 							optionStrike = optionStrike,
 							optionExpire = optionExpire)
 					elif t.keyEqual("type", "split"):
-						if t.hasKey("numerator") and t.hasKey("denominator"):
-							value = float(t["numerator"]) / float(t["denominator"])
-						elif t.hasKey("newunits") and t.hasKey("oldunits"):
-							value = float(t["newunits"]) / float(t["oldunits"])
-						else:
-							raise Exception
-						
+						# By default give preference to newunits / oldunits
+						# Do not use newunits / oldunits if they are the same
+						# Then try numerator / denominator
+						# If all else fails, use a split value of 1-1
+						splitVal = 1.0
+						if t.hasKey("newunits") and t.hasKey("oldunits"):
+							new = float(t["newunits"])
+							old = float(t["oldunits"])
+							if new != old and old != 0:
+								splitVal = new / old
+						if splitVal == 1.0 and t.hasKey("numerator") and t.hasKey("denominator"):
+							num = float(t["numerator"])
+							den = float(t["denominator"])
+							if den != 0:
+								splitVal = num / den
+
 						trans = Transaction(
 							t["fitid"],
 							t["ticker"],
 							t.getDate(),
 							Transaction.split,
-							value,
+							splitVal,
 							fee = fees)
 					else:
 						raise Exception
